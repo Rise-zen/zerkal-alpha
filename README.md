@@ -20,14 +20,31 @@ Built on [quickshell](https://quickshell.outfoxxed.me/), tested on Hyprland.
 
 ## Install
 
+### Nix (no clone, no PATH wrangling)
+
+```sh
+# try it once, runtime deps come along automatically
+nix run github:zerkal-beta/zerkal             # orbital
+nix run github:zerkal-beta/zerkal#galaxy      # galaxy mode
+
+# permanent install into your profile
+nix profile install github:zerkal-beta/zerkal
+zerkal toggle
+```
+
+For local hacking the flake also exposes a dev shell with quickshell,
+playerctl, ImageMagick and watchexec:
+
+```sh
+git clone https://github.com/zerkal-beta/zerkal && cd zerkal
+nix develop           # or `direnv allow` if you have direnv
+```
+
+### Arch / paru
+
 ```sh
 git clone https://github.com/zerkal-beta/zerkal.git ~/Projects/zerkal
 chmod +x ~/Projects/zerkal/zerkal.sh
-```
-
-Dependencies (Arch / paru):
-
-```sh
 paru -S quickshell-git playerctl jq qt6-multimedia
 ```
 

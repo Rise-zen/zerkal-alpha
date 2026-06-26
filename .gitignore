@@ -2,3 +2,8 @@
 *.bak
 *.orig
 .DS_Store
+
+# Nix
+result
+result-*
+.direnv/
