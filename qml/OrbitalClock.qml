@@ -337,44 +337,21 @@ PanelWindow {
             border.color: Qt.rgba(panel.accent.r, panel.accent.g, panel.accent.b, 0.30)
         }
 
-        // ----- painted planet (no image, no per-frame effects) -----
-        Rectangle {
-            id: planetBody
+        // ----- center logo (Tux) -----
+        // Static Image, no rotation and no MultiEffect — layer.enabled caches
+        // it to a texture so there's zero per-frame cost (the earlier lag came
+        // from live colorization + rotation, not from drawing an image).
+        Image {
             anchors.centerIn: parent
-            width: parent.width
-            height: parent.height
-            radius: width / 2
-            color: Qt.darker(panel.accent, 1.35)
-            border.width: 1
-            border.color: Qt.rgba(panel.accent.r, panel.accent.g, panel.accent.b, 0.45)
-
-            Rectangle {
-                width: parent.width * 0.85
-                height: parent.height * 0.85
-                radius: width / 2
-                x: parent.width * 0.05
-                y: parent.height * 0.03
-                color: panel.accent
-                opacity: 0.85
-            }
-            Rectangle {
-                width: parent.width * 0.55
-                height: parent.height * 0.55
-                radius: width / 2
-                x: parent.width * 0.10
-                y: parent.height * 0.05
-                color: Qt.lighter(panel.accent, 1.7)
-                opacity: 0.65
-            }
-            Rectangle {
-                width: parent.width * 0.20
-                height: parent.height * 0.20
-                radius: width / 2
-                x: parent.width * 0.20
-                y: parent.height * 0.13
-                color: "white"
-                opacity: 0.55
-            }
+            width: parent.width * 0.8
+            height: parent.height * 0.8
+            source: "center.png"
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            cache: true
+            asynchronous: true
+            layer.enabled: true
         }
 
         // tiny title label below the planet so the user still sees what's playing
