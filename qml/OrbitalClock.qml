@@ -188,8 +188,11 @@ PanelWindow {
 
                 width: 100
                 height: 100
-                x: cx + stage.rx * Math.cos(angle) - width / 2
-                y: cy + stage.ry * Math.sin(angle) - height / 2
+                // Math.round snaps positions to integer pixels — sub-pixel
+                // movement was making the masked covers shimmer/tremble as
+                // the rasteriser shifted bilinear samples each frame.
+                x: Math.round(cx + stage.rx * Math.cos(angle) - width / 2)
+                y: Math.round(cy + stage.ry * Math.sin(angle) - height / 2)
                 z: isTop ? 10 : 1
 
                 // No animation on x/y — the angle changes continuously via the
@@ -214,14 +217,23 @@ PanelWindow {
                 }
 
                 // circular cover
+                // Round cover via MultiEffect mask (QML's clip+radius is
+                // bbox-only, doesn't do rounded clipping). sourceSize keeps
+                // the texture sharp at any bubble size; mipmap antialiases
+                // the downsample.
                 Item {
                     anchors.fill: parent
                     layer.enabled: true
+                    layer.smooth: true
                     layer.effect: MultiEffect { maskEnabled: true; maskSource: bubbleMask }
                     Image {
                         anchors.fill: parent
                         source: modelData.cover ? "file://" + modelData.cover : ""
                         fillMode: Image.PreserveAspectCrop
+                        sourceSize.width:  200
+                        sourceSize.height: 200
+                        smooth: true
+                        mipmap: true
                         asynchronous: true
                         cache: true
                     }
@@ -231,7 +243,7 @@ PanelWindow {
                     anchors.fill: parent
                     visible: false
                     layer.enabled: true
-                    Rectangle { anchors.fill: parent; radius: width / 2; color: "black" }
+                    Rectangle { anchors.fill: parent; radius: width / 2; color: "black"; antialiasing: true }
                 }
 
                 MouseArea {
