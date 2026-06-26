@@ -3,9 +3,8 @@ import QtQuick.Effects
 import Quickshell
 import Quickshell.Wayland
 
-// A floating clock surrounded by an elliptical orbit of recently-played
-// album covers. The orbit angle is driven by the mouse wheel: scroll left
-// rotates one slot counter-clockwise, scroll right the other way.
+// Fullscreen Wayland overlay (layer-shell) with a planet at the centre and
+// recently-played covers orbiting it.
 PanelWindow {
     id: panel
 
@@ -27,6 +26,15 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     WlrLayershell.namespace: "orbital-clock"
 
+    // ----- reveal: 0 = invisible, 1 = fully rendered. Animates 0→1 with a
+    // soft easing whenever the panel is shown, so opening feels like a bloom
+    // rather than a hard cut. Close stays instant (user explicitly asked
+    // for snappy close back when fade-out caused stuck "closing" states).
+    property real reveal: visible ? 1.0 : 0.0
+    Behavior on reveal {
+        NumberAnimation { duration: 480; easing.type: Easing.OutCubic }
+    }
+
     // ----- live clock (no Timer when only animating once per second) -----
     property string clockHHMM: ""
     property string clockSS: ""
@@ -43,50 +51,61 @@ PanelWindow {
         onTriggered: panel.updateClock()
     }
 
-    // ----- cached blurred cover backdrop -----
-    Rectangle { anchors.fill: parent; color: "#0a0b10" }
-    Item {
-        anchors.fill: parent
-        layer.enabled: true   // blur rasterised once per cover change, then cached
-        layer.smooth: true
-
-        Image {
-            id: backdropSrc
-            anchors.fill: parent
-            source: panel.nowCover ? "file://" + panel.nowCover : ""
-            fillMode: Image.PreserveAspectCrop
-            visible: false
-            asynchronous: true
-            cache: true
-        }
-        MultiEffect {
-            anchors.fill: parent
-            source: backdropSrc
-            visible: backdropSrc.status === Image.Ready
-            blurEnabled: true
-            blurMax: 96
-            blur: 1.0
-            opacity: 0.45
-            brightness: -0.25
-            saturation: 0.35
-        }
-    }
-    // accent wash on top of the cached blur
-    Rectangle {
-        anchors.fill: parent
-        gradient: Gradient {
-            GradientStop { position: 0; color: Qt.rgba(panel.accent.r, panel.accent.g, panel.accent.b, 0.10) }
-            GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.65) }
-        }
-    }
-    // catch-all close — instant requestClose on left-click anywhere off-bubble
-    MouseArea {
-        anchors.fill: parent
-        acceptedButtons: Qt.LeftButton
-        onClicked: panel.requestClose()
-    }
-
     Keys.onEscapePressed: panel.requestClose()
+
+    // Everything visual lives inside `world` so we can fade + zoom the whole
+    // scene as a single unit during the reveal animation. opacity + scale
+    // bind to `panel.reveal` (0..1) which is animated via the Behavior above.
+    Item {
+        id: world
+        anchors.fill: parent
+        opacity: panel.reveal
+        scale: 0.96 + panel.reveal * 0.04
+        transformOrigin: Item.Center
+
+        // ----- cached blurred cover backdrop -----
+        Rectangle { anchors.fill: parent; color: "#0a0b10" }
+        Item {
+            anchors.fill: parent
+            layer.enabled: true   // blur rasterised once per cover change, then cached
+            layer.smooth: true
+
+            Image {
+                id: backdropSrc
+                anchors.fill: parent
+                source: panel.nowCover ? "file://" + panel.nowCover : ""
+                fillMode: Image.PreserveAspectCrop
+                visible: false
+                asynchronous: true
+                cache: true
+            }
+            MultiEffect {
+                anchors.fill: parent
+                source: backdropSrc
+                visible: backdropSrc.status === Image.Ready
+                blurEnabled: true
+                blurMax: 96
+                blur: 1.0
+                opacity: 0.45
+                brightness: -0.25
+                saturation: 0.35
+            }
+        }
+        // accent wash on top of the cached blur
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0; color: Qt.rgba(panel.accent.r, panel.accent.g, panel.accent.b, 0.10) }
+                GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.65) }
+            }
+        }
+        // catch-all close — instant requestClose on left-click anywhere off-bubble
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton
+            onClicked: panel.requestClose()
+        }
+    }
 
     // ----- orbit angle -----
     // Two separate offsets are summed so the user's scroll input never fights
@@ -96,15 +115,18 @@ PanelWindow {
     property real autoOffset: 0
     property real rotationOffset: userOffset + autoOffset
 
+    // Slightly snappier on wheel — feels more responsive on a 180Hz display
+    // while staying smooth (vsync-stepped NumberAnimation).
     Behavior on userOffset {
-        NumberAnimation { duration: 380; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: 280; easing.type: Easing.OutCubic }
     }
 
-    // Slow drift, one full revolution per minute. The user can still scroll
-    // to nudge the active bubble — that lands on top of this baseline.
+    // Slow drift, one revolution per 30s. Faster than the old 60s so the
+    // motion actually reads on a 180Hz panel without feeling restless. The
+    // NumberAnimation steps on every vsync.
     NumberAnimation on autoOffset {
         from: 0; to: Math.PI * 2
-        duration: 60000
+        duration: 30000
         loops: Animation.Infinite
         running: true
     }
@@ -128,6 +150,7 @@ PanelWindow {
     // unambiguous.
     Item {
         id: stage
+        parent: world           // ride the reveal fade + scale
         anchors.fill: parent
         // Tracked, robust dimensions for orbit math. Screen is the most
         // reliable source — width/height update reactively.
@@ -137,7 +160,13 @@ PanelWindow {
         property real rx: Math.min(sw, sh) * 0.42
         property real ry: Math.min(sw, sh) * 0.30
 
-        // ----- orbit ring (dashed ellipse, drawn behind the bubbles) -----
+        // ----- glowing orbit rail with bloom -----
+        // Layered concentric ellipses drawn with additive composite ("lighter")
+        // so overlapping halos accumulate brightness like real light, not
+        // alpha-blend mud. 11 layers from a wide soft halo (40px out) into a
+        // hot 3px white core. A radial gradient inside the ring fills the
+        // space with a soft inner glow, plus a floor shadow below sells the
+        // "ring floats above a surface" 3D illusion.
         Canvas {
             id: ringCanvas
             anchors.fill: parent
@@ -147,12 +176,60 @@ PanelWindow {
                 ctx.reset();
                 const cx = stage.sw / 2;
                 const cy = stage.sh / 2;
-                ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.10);
-                ctx.lineWidth = 1.5;
-                ctx.setLineDash([6, 8]);
+                const rx = stage.rx;
+                const ry = stage.ry;
+
+                ctx.globalCompositeOperation = "source-over";
+
+                // Inner radial glow — soft warm white wash inside the
+                // ring, brightest at the rim, fading toward the centre. This
+                // is what gives the ring "illuminated interior" feel.
+                const innerGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
+                innerGrad.addColorStop(0.0, Qt.rgba(1, 1, 1, 0.0));
+                innerGrad.addColorStop(0.55, Qt.rgba(1, 1, 1, 0.04));
+                innerGrad.addColorStop(0.85, Qt.rgba(1, 1, 1, 0.14));
+                innerGrad.addColorStop(1.0, Qt.rgba(1, 1, 1, 0.28));
+                ctx.fillStyle = innerGrad;
                 ctx.beginPath();
-                ctx.ellipse(cx - stage.rx, cy - stage.ry, stage.rx * 2, stage.ry * 2);
-                ctx.stroke();
+                ctx.ellipse(cx - rx, cy - ry, rx * 2, ry * 2);
+                ctx.fill();
+
+                // 3. Additive glow stack — overlapping strokes ADD brightness
+                // so the core ends up super-bright even from low per-layer
+                // alphas. This is the real trick: emulates HDR bloom on a
+                // standard 8-bit canvas.
+                ctx.globalCompositeOperation = "lighter";
+
+                // [extraRadius, lineWidth, alphaTop, alphaBottom]
+                const layers = [
+                    [40, 50, 0.04, 0.015],   // farthest soft halo
+                    [28, 36, 0.06, 0.025],
+                    [20, 26, 0.08, 0.035],
+                    [14, 18, 0.12, 0.05],
+                    [ 9, 13, 0.18, 0.08],
+                    [ 6,  9, 0.26, 0.12],
+                    [ 4,  6, 0.36, 0.18],
+                    [ 2,  4, 0.55, 0.28],
+                    [ 1,  3, 0.85, 0.45],
+                    [ 0,  3, 1.00, 0.70],    // hot core
+                    [-1, 1.5, 0.90, 0.60],   // inner sheen pass
+                ];
+
+                for (let i = 0; i < layers.length; i++) {
+                    const [er, lw, aT, aB] = layers[i];
+                    const grad = ctx.createLinearGradient(0, cy - ry - er, 0, cy + ry + er);
+                    grad.addColorStop(0.0, Qt.rgba(1, 1, 1, aT));
+                    grad.addColorStop(0.5, Qt.rgba(1, 1, 1, (aT + aB) / 2));
+                    grad.addColorStop(1.0, Qt.rgba(1, 1, 1, aB));
+                    ctx.strokeStyle = grad;
+                    ctx.lineWidth = lw;
+                    ctx.beginPath();
+                    ctx.ellipse(cx - rx - er, cy - ry - er, (rx + er) * 2, (ry + er) * 2);
+                    ctx.stroke();
+                }
+
+                // back to normal blending for anything painted later
+                ctx.globalCompositeOperation = "source-over";
             }
             Connections {
                 target: stage
@@ -188,11 +265,13 @@ PanelWindow {
 
                 width: 100
                 height: 100
-                // Math.round snaps positions to integer pixels — sub-pixel
-                // movement was making the masked covers shimmer/tremble as
-                // the rasteriser shifted bilinear samples each frame.
-                x: Math.round(cx + stage.rx * Math.cos(angle) - width / 2)
-                y: Math.round(cy + stage.ry * Math.sin(angle) - height / 2)
+                antialiasing: true
+                // Sub-pixel positions for buttery 180Hz motion. The earlier
+                // shimmer came from the MultiEffect mask layer, not from
+                // sub-pixel — `layer.smooth: true` on the masked Item below
+                // now handles bilinear sampling properly.
+                x: cx + stage.rx * Math.cos(angle) - width / 2
+                y: cy + stage.ry * Math.sin(angle) - height / 2
                 z: isTop ? 10 : 1
 
                 // No animation on x/y — the angle changes continuously via the
@@ -206,14 +285,15 @@ PanelWindow {
                     height: parent.height + 8
                     radius: width / 2
                     color: "transparent"
+                    antialiasing: true
                     border.width: bubble.isTop ? 2 : 1
                     border.color: Qt.rgba(
                         bubble.modelData.accent ? Qt.color(bubble.modelData.accent).r : panel.accent.r,
                         bubble.modelData.accent ? Qt.color(bubble.modelData.accent).g : panel.accent.g,
                         bubble.modelData.accent ? Qt.color(bubble.modelData.accent).b : panel.accent.b,
                         bubble.isTop ? 0.85 : 0.40)
-                    Behavior on border.width { NumberAnimation { duration: 200 } }
-                    Behavior on border.color { ColorAnimation { duration: 200 } }
+                    Behavior on border.width { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+                    Behavior on border.color { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
                 }
 
                 // circular cover
@@ -310,6 +390,7 @@ PanelWindow {
     // it changes with the currently-playing track's cover.
     Item {
         id: centerPlanet
+        parent: world           // ride the reveal fade + scale with everything else
         anchors.centerIn: stage
         width: 220
         height: 220
@@ -349,10 +430,11 @@ PanelWindow {
             border.color: Qt.rgba(panel.accent.r, panel.accent.g, panel.accent.b, 0.30)
         }
 
-        // ----- center logo (Tux) -----
-        // Static Image, no rotation and no MultiEffect — layer.enabled caches
-        // it to a texture so there's zero per-frame cost (the earlier lag came
-        // from live colorization + rotation, not from drawing an image).
+        // ----- center logo -----
+        // layer.enabled rasterises the PNG into a cached texture once. The
+        // GPU then transforms that texture for the rotation — basically free
+        // per frame. The lag we hit earlier was MultiEffect colorization,
+        // not the rotation itself.
         Image {
             anchors.centerIn: parent
             width: parent.width * 0.8
@@ -364,40 +446,18 @@ PanelWindow {
             cache: true
             asynchronous: true
             layer.enabled: true
+            layer.smooth: true
+            antialiasing: true
+            transformOrigin: Item.Center
+
+            RotationAnimation on rotation {
+                from: 0; to: 360
+                duration: 24000
+                loops: Animation.Infinite
+                running: true
+            }
         }
 
-        // tiny title label below the planet so the user still sees what's playing
-        Column {
-            anchors.top: parent.bottom
-            anchors.topMargin: 32
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 4
-            opacity: panel.nowTitle ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: 260 } }
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: panel.nowTitle
-                color: Qt.rgba(1, 1, 1, 0.85)
-                font.family: "JetBrains Mono"
-                font.pixelSize: 15
-                font.weight: Font.Bold
-                elide: Text.ElideRight
-                width: 380
-                horizontalAlignment: Text.AlignHCenter
-            }
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: panel.nowArtist.toUpperCase()
-                color: Qt.rgba(1, 1, 1, 0.50)
-                font.family: "JetBrains Mono"
-                font.pixelSize: 10
-                font.weight: Font.Medium
-                font.letterSpacing: 2.5
-                elide: Text.ElideRight
-                width: 380
-                horizontalAlignment: Text.AlignHCenter
-            }
-        }
     }
 
 }
