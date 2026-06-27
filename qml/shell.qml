@@ -20,25 +20,15 @@ ShellRoot {
 
     // toggled by IPC
     property bool orbitalShown: false
-    property bool galaxyShown:  false
 
-    // `zerkal` controls the orbital (planet + ring) view; `galaxy` controls
-    // the perspective carousel through a star field. They're independent so
-    // users can have both bound to different keys.
     IpcHandler {
         target: "zerkal"
         function toggle(): void { rootShell.orbitalShown = !rootShell.orbitalShown }
         function show(): void   { rootShell.orbitalShown = true }
         function hide(): void   { rootShell.orbitalShown = false }
     }
-    IpcHandler {
-        target: "galaxy"
-        function toggle(): void { rootShell.galaxyShown = !rootShell.galaxyShown }
-        function show(): void   { rootShell.galaxyShown = true }
-        function hide(): void   { rootShell.galaxyShown = false }
-    }
 
-    // ---- poll the JSON state (200 ms is plenty for clock-orbit info) ----
+    // ---- poll the JSON state (250 ms is plenty for clock-orbit info) ----
     Process {
         id: reader
         command: ["cat", "/tmp/lyrics.json"]
@@ -67,17 +57,11 @@ ShellRoot {
     // makes show/hide instant and lag-free regardless of how many recent
     // tracks have accumulated.
     property bool everOrbital: false
-    property bool everGalaxy:  false
     onOrbitalShownChanged: if (orbitalShown) everOrbital = true
-    onGalaxyShownChanged:  if (galaxyShown)  everGalaxy  = true
 
     Loader {
         active: rootShell.everOrbital
         sourceComponent: orbitalComp
-    }
-    Loader {
-        active: rootShell.everGalaxy
-        sourceComponent: galaxyComp
     }
 
     Component {
@@ -90,15 +74,6 @@ ShellRoot {
             nowArtist: rootShell.artist
             nowCover:  rootShell.cover
             onRequestClose: rootShell.orbitalShown = false
-        }
-    }
-    Component {
-        id: galaxyComp
-        GalaxyView {
-            visible: rootShell.galaxyShown
-            accent:  rootShell.accent
-            recent:  rootShell.recent
-            onRequestClose: rootShell.galaxyShown = false
         }
     }
 }

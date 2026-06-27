@@ -3,9 +3,8 @@
 #
 #   zerkal.sh start    launch (autostart-friendly, exits immediately)
 #   zerkal.sh toggle   show/hide the orbital (planet + ring) view
-#   zerkal.sh galaxy   show/hide the perspective starfield carousel
-#   zerkal.sh show     force show orbital
-#   zerkal.sh hide     force hide orbital
+#   zerkal.sh show     force show
+#   zerkal.sh hide     force hide
 #   zerkal.sh stop     kill the shell
 #
 # Expects /tmp/lyrics.json to be kept fresh by the `lyrics --json` daemon
@@ -22,11 +21,10 @@ start() {
 }
 
 case "$1" in
-    start)   start ;;
-    toggle)  start; quickshell -p "$SHELL_QML" ipc call zerkal toggle >/dev/null 2>&1 ;;
-    galaxy)  start; quickshell -p "$SHELL_QML" ipc call galaxy toggle >/dev/null 2>&1 ;;
-    show)    start; quickshell -p "$SHELL_QML" ipc call zerkal show   >/dev/null 2>&1 ;;
-    hide)    quickshell -p "$SHELL_QML" ipc call zerkal hide >/dev/null 2>&1 ;;
-    stop)    pkill -f "quickshell -p $SHELL_QML" ;;
-    *) echo "usage: $0 {start|toggle|galaxy|show|hide|stop}"; exit 1 ;;
+    start)  start ;;
+    toggle) start; quickshell -p "$SHELL_QML" ipc call zerkal toggle >/dev/null 2>&1 ;;
+    show)   start; quickshell -p "$SHELL_QML" ipc call zerkal show   >/dev/null 2>&1 ;;
+    hide)   quickshell -p "$SHELL_QML" ipc call zerkal hide >/dev/null 2>&1 ;;
+    stop)   pkill -f "quickshell -p $SHELL_QML" ;;
+    *) echo "usage: $0 {start|toggle|show|hide|stop}"; exit 1 ;;
 esac
