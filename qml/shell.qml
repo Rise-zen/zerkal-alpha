@@ -43,7 +43,9 @@ ShellRoot {
                 rootShell.artist = d.artist || "";
                 if (d.accent) rootShell.accent = d.accent;
                 rootShell.cover  = d.cover  || "";
-                rootShell.recent = d.recent || [];
+                let newRecent = d.recent || [];
+                if (JSON.stringify(newRecent) !== JSON.stringify(rootShell.recent))
+                    rootShell.recent = newRecent;
             }
         }
     }
