@@ -35,22 +35,6 @@ PanelWindow {
         NumberAnimation { duration: 480; easing.type: Easing.OutCubic }
     }
 
-    // ----- live clock (no Timer when only animating once per second) -----
-    property string clockHHMM: ""
-    property string clockSS: ""
-    property string clockDate: ""
-    function updateClock() {
-        const d = new Date();
-        const pad = n => (n < 10 ? "0" + n : "" + n);
-        panel.clockHHMM = pad(d.getHours()) + ":" + pad(d.getMinutes());
-        panel.clockSS = pad(d.getSeconds());
-        panel.clockDate = d.toLocaleDateString(Qt.locale("en_US"), "dddd, MMMM d");
-    }
-    Timer {
-        interval: 250; running: true; repeat: true; triggeredOnStart: true
-        onTriggered: panel.updateClock()
-    }
-
     Keys.onEscapePressed: panel.requestClose()
 
     // Everything visual lives inside `world` so we can fade + zoom the whole
@@ -128,7 +112,7 @@ PanelWindow {
         from: 0; to: Math.PI * 2
         duration: 30000
         loops: Animation.Infinite
-        running: true
+        running: panel.visible
     }
 
     // Scroll catcher: covers the orbit area but lets bubble clicks through.
@@ -414,7 +398,7 @@ PanelWindow {
         Item {
             anchors.fill: parent
             SequentialAnimation on scale {
-                running: true; loops: Animation.Infinite
+                running: panel.visible; loops: Animation.Infinite
                 NumberAnimation { from: 0.95; to: 1.08; duration: 2400; easing.type: Easing.InOutSine }
                 NumberAnimation { from: 1.08; to: 0.95; duration: 2400; easing.type: Easing.InOutSine }
             }
@@ -454,7 +438,7 @@ PanelWindow {
                 from: 0; to: 360
                 duration: 24000
                 loops: Animation.Infinite
-                running: true
+                running: panel.visible
             }
         }
 
