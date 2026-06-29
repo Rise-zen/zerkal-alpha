@@ -28,30 +28,25 @@ ShellRoot {
         function hide(): void   { rootShell.orbitalShown = false }
     }
 
-    // ---- poll the JSON state (250 ms is plenty for clock-orbit info) ----
-    Process {
-        id: reader
-        command: ["cat", "/tmp/lyrics.json"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const txt = this.text.trim();
-                if (txt === "") return;
-                let d;
-                try { d = JSON.parse(txt); } catch (e) { return; }
+    // ---- read state on every write to /tmp/lyrics.json (no polling) ----
+    FileView {
+        path: "/tmp/lyrics.json"
+        watchChanges: true
+        onFileChanged: reload()
+        onLoaded: {
+            const txt = text().trim();
+            if (txt === "") return;
+            let d;
+            try { d = JSON.parse(txt); } catch (e) { return; }
 
-                rootShell.title  = d.title  || "";
-                rootShell.artist = d.artist || "";
-                if (d.accent) rootShell.accent = d.accent;
-                rootShell.cover  = d.cover  || "";
-                let newRecent = d.recent || [];
-                if (JSON.stringify(newRecent) !== JSON.stringify(rootShell.recent))
-                    rootShell.recent = newRecent;
-            }
+            rootShell.title  = d.title  || "";
+            rootShell.artist = d.artist || "";
+            if (d.accent) rootShell.accent = d.accent;
+            rootShell.cover  = d.cover  || "";
+            const newRecent = d.recent || [];
+            if (JSON.stringify(newRecent) !== JSON.stringify(rootShell.recent))
+                rootShell.recent = newRecent;
         }
-    }
-    Timer {
-        interval: 250; running: true; repeat: true; triggeredOnStart: true
-        onTriggered: reader.running = true
     }
 
     // Keep the Loader active forever after first show, so toggling visibility

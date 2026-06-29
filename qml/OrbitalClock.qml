@@ -26,10 +26,8 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     WlrLayershell.namespace: "orbital-clock"
 
-    // ----- reveal: 0 = invisible, 1 = fully rendered. Animates 0→1 with a
-    // soft easing whenever the panel is shown, so opening feels like a bloom
-    // rather than a hard cut. Close stays instant (user explicitly asked
-    // for snappy close back when fade-out caused stuck "closing" states).
+    // reveal 0→1 drives the bloom-in on show. Close is instant: the window
+    // unmaps the moment `visible` flips, so the fade-out is never seen.
     property real reveal: visible ? 1.0 : 0.0
     Behavior on reveal {
         NumberAnimation { duration: 480; easing.type: Easing.OutCubic }
@@ -37,9 +35,7 @@ PanelWindow {
 
     Keys.onEscapePressed: panel.requestClose()
 
-    // Everything visual lives inside `world` so we can fade + zoom the whole
-    // scene as a single unit during the reveal animation. opacity + scale
-    // bind to `panel.reveal` (0..1) which is animated via the Behavior above.
+    // All visuals live in `world` so the reveal fades + zooms the scene as one.
     Item {
         id: world
         anchors.fill: parent
@@ -91,23 +87,17 @@ PanelWindow {
         }
     }
 
-    // ----- orbit angle -----
-    // Two separate offsets are summed so the user's scroll input never fights
-    // with the slow continuous auto-rotation. `userOffset` snaps in 1-slot
-    // steps; `autoOffset` drifts smoothly forever.
+    // Scroll input (userOffset, snaps per slot) and continuous drift
+    // (autoOffset) are summed so they never fight.
     property real userOffset: 0
     property real autoOffset: 0
     property real rotationOffset: userOffset + autoOffset
 
-    // Slightly snappier on wheel — feels more responsive on a 180Hz display
-    // while staying smooth (vsync-stepped NumberAnimation).
     Behavior on userOffset {
         NumberAnimation { duration: 280; easing.type: Easing.OutCubic }
     }
 
-    // Slow drift, one revolution per 30s. Faster than the old 60s so the
-    // motion actually reads on a 180Hz panel without feeling restless. The
-    // NumberAnimation steps on every vsync.
+    // One revolution per 30s; paused while the overlay is hidden.
     NumberAnimation on autoOffset {
         from: 0; to: Math.PI * 2
         duration: 30000
@@ -127,30 +117,20 @@ PanelWindow {
         }
     }
 
-    // ----- explicit orbit stage -----
-    // PanelWindow's own width/height return 0 during early binding evaluation,
-    // so we anchor a plain Item to it AND fall back to Screen dimensions for
-    // geometry. Canvas + bubbles live inside this stage so their `parent` is
-    // unambiguous.
+    // Orbit stage. Geometry comes from Screen because PanelWindow width/height
+    // read 0 during early binding evaluation.
     Item {
         id: stage
         parent: world           // ride the reveal fade + scale
         anchors.fill: parent
-        // Tracked, robust dimensions for orbit math. Screen is the most
-        // reliable source — width/height update reactively.
         property real sw: Screen.width
         property real sh: Screen.height
-        // Shared ellipse geometry — same values used by ring and bubbles.
+        // Shared ellipse geometry for the ring and the bubbles.
         property real rx: Math.min(sw, sh) * 0.42
         property real ry: Math.min(sw, sh) * 0.30
 
-        // ----- glowing orbit rail with bloom -----
-        // Layered concentric ellipses drawn with additive composite ("lighter")
-        // so overlapping halos accumulate brightness like real light, not
-        // alpha-blend mud. 11 layers from a wide soft halo (40px out) into a
-        // hot 3px white core. A radial gradient inside the ring fills the
-        // space with a soft inner glow, plus a floor shadow below sells the
-        // "ring floats above a surface" 3D illusion.
+        // Glowing orbit ring: an inner radial wash plus an additive-blended
+        // ("lighter") stack of ellipse strokes that fakes HDR bloom on 8-bit.
         Canvas {
             id: ringCanvas
             anchors.fill: parent
@@ -165,9 +145,7 @@ PanelWindow {
 
                 ctx.globalCompositeOperation = "source-over";
 
-                // Inner radial glow — soft warm white wash inside the
-                // ring, brightest at the rim, fading toward the centre. This
-                // is what gives the ring "illuminated interior" feel.
+                // Inner wash: brightest at the rim, fading to the centre.
                 const innerGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
                 innerGrad.addColorStop(0.0, Qt.rgba(1, 1, 1, 0.0));
                 innerGrad.addColorStop(0.55, Qt.rgba(1, 1, 1, 0.04));
@@ -178,10 +156,8 @@ PanelWindow {
                 ctx.ellipse(cx - rx, cy - ry, rx * 2, ry * 2);
                 ctx.fill();
 
-                // 3. Additive glow stack — overlapping strokes ADD brightness
-                // so the core ends up super-bright even from low per-layer
-                // alphas. This is the real trick: emulates HDR bloom on a
-                // standard 8-bit canvas.
+                // Additive glow stack — overlapping strokes accumulate to a
+                // bright core from low per-layer alphas.
                 ctx.globalCompositeOperation = "lighter";
 
                 // [extraRadius, lineWidth, alphaTop, alphaBottom]
@@ -238,8 +214,7 @@ PanelWindow {
                 property real cx: stage.sw / 2
                 property real cy: stage.sh / 2
 
-                // Closeness to the top slot, only used to highlight which one
-                // gets the title label. No size/scale/opacity changes.
+                // Highlight the bubble nearest the top slot (gets the label).
                 property real normalizedAngle: {
                     let a = (angle + Math.PI / 2) % (Math.PI * 2);
                     if (a < 0) a += Math.PI * 2;
@@ -247,20 +222,17 @@ PanelWindow {
                 }
                 property bool isTop: Math.min(normalizedAngle, Math.PI * 2 - normalizedAngle) < 0.20
 
+                // Per-track accent (parsed once), falling back to the panel accent.
+                property color ringColor: modelData.accent ? modelData.accent : panel.accent
+
                 width: 100
                 height: 100
                 antialiasing: true
-                // Sub-pixel positions for buttery 180Hz motion. The earlier
-                // shimmer came from the MultiEffect mask layer, not from
-                // sub-pixel — `layer.smooth: true` on the masked Item below
-                // now handles bilinear sampling properly.
+                // Moved every frame from the angle math; no x/y Behavior (it
+                // would lag the continuous auto-rotation and stutter).
                 x: cx + stage.rx * Math.cos(angle) - width / 2
                 y: cy + stage.ry * Math.sin(angle) - height / 2
                 z: isTop ? 10 : 1
-
-                // No animation on x/y — the angle changes continuously via the
-                // auto-rotation NumberAnimation, so a Behavior would lag behind
-                // and stutter. We move every frame from the math.
 
                 // permanent thin accent ring on every cover
                 Rectangle {
@@ -271,20 +243,13 @@ PanelWindow {
                     color: "transparent"
                     antialiasing: true
                     border.width: bubble.isTop ? 2 : 1
-                    border.color: Qt.rgba(
-                        bubble.modelData.accent ? Qt.color(bubble.modelData.accent).r : panel.accent.r,
-                        bubble.modelData.accent ? Qt.color(bubble.modelData.accent).g : panel.accent.g,
-                        bubble.modelData.accent ? Qt.color(bubble.modelData.accent).b : panel.accent.b,
-                        bubble.isTop ? 0.85 : 0.40)
+                    border.color: Qt.rgba(bubble.ringColor.r, bubble.ringColor.g,
+                                          bubble.ringColor.b, bubble.isTop ? 0.85 : 0.40)
                     Behavior on border.width { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
                     Behavior on border.color { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
                 }
 
-                // circular cover
-                // Round cover via MultiEffect mask (QML's clip+radius is
-                // bbox-only, doesn't do rounded clipping). sourceSize keeps
-                // the texture sharp at any bubble size; mipmap antialiases
-                // the downsample.
+                // Round cover via MultiEffect mask (clip+radius is bbox-only).
                 Item {
                     anchors.fill: parent
                     layer.enabled: true
@@ -318,11 +283,8 @@ PanelWindow {
                         mouse.accepted = true;
                         const uri = bubble.modelData.uri || "";
                         if (uri !== "") {
-                            // Explicit --player=spotify: spotify:track:XXX
-                            // URIs only mean anything to Spotify itself, and
-                            // playerctld may have promoted another player to
-                            // "current" (chromium, mpv) which would silently
-                            // discard the open command.
+                            // Pin to spotify: a spotify:track: URI is meaningless
+                            // to whatever else playerctld may have made "current".
                             Quickshell.execDetached(["playerctl", "--player=spotify", "open", uri]);
                         }
                     }
@@ -368,21 +330,15 @@ PanelWindow {
         }
     }
 
-    // ----- central planet -----
-    // A glowing accent-coloured sphere with a soft outer corona, slow inner
-    // shimmer, and a faint orbital aura ring. Colour follows panel.accent so
-    // it changes with the currently-playing track's cover.
+    // Central planet — accent-coloured glow that follows the current track.
     Item {
         id: centerPlanet
-        parent: world           // ride the reveal fade + scale with everything else
+        parent: world           // ride the reveal fade + scale
         anchors.centerIn: stage
         width: 220
         height: 220
 
-        // ----- outermost halo (very wide, very soft, pulsing) -----
-        // Stack of progressively smaller, more opaque circles emulates a radial
-        // gradient since Qt6 needs QtQuick.Shapes for true RadialGradient and
-        // that boilerplate is heavy. 5 layers reads as a smooth glow.
+        // Pulsing halo: stacked circles approximate a radial gradient.
         Repeater {
             model: 5
             delegate: Rectangle {
@@ -414,11 +370,8 @@ PanelWindow {
             border.color: Qt.rgba(panel.accent.r, panel.accent.g, panel.accent.b, 0.30)
         }
 
-        // ----- center logo -----
-        // layer.enabled rasterises the PNG into a cached texture once. The
-        // GPU then transforms that texture for the rotation — basically free
-        // per frame. The lag we hit earlier was MultiEffect colorization,
-        // not the rotation itself.
+        // Center logo — layer.enabled caches the PNG as a texture so the
+        // rotation is a near-free GPU transform.
         Image {
             anchors.centerIn: parent
             width: parent.width * 0.8
