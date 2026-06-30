@@ -4,7 +4,7 @@ Floating Wayland overlay that draws an animated planet at the centre of the
 screen with the covers of your recently played tracks orbiting it. Click a
 cover to jump to that track in Spotify.
 
-![preview](https://i.imgur.com/ddmIHOT.jpeg)
+![preview](preview.jpg)
 
 Built on [quickshell](https://quickshell.outfoxxed.me/), tested on Hyprland.
 
