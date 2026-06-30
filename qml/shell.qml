@@ -58,6 +58,7 @@ ShellRoot {
 
     Loader {
         active: rootShell.everOrbital
+        asynchronous: true   // build the heavy orbit scene off the render thread
         sourceComponent: orbitalComp
     }
 

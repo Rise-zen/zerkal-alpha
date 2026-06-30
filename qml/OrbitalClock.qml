@@ -198,6 +198,17 @@ PanelWindow {
             }
         }
 
+        // One circular mask shared by every cover (all bubbles are the same
+        // size), instead of one mask layer per bubble.
+        Item {
+            id: circleMask
+            width: 100
+            height: 100
+            visible: false
+            layer.enabled: true
+            Rectangle { anchors.fill: parent; radius: width / 2; color: "black"; antialiasing: true }
+        }
+
         // ----- orbiting cover bubbles -----
         Repeater {
             model: panel.recent
@@ -249,12 +260,13 @@ PanelWindow {
                     Behavior on border.color { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
                 }
 
-                // Round cover via MultiEffect mask (clip+radius is bbox-only).
+                // Round cover via the shared MultiEffect mask (clip+radius is
+                // bbox-only). One mask layer per bubble instead of two.
                 Item {
                     anchors.fill: parent
                     layer.enabled: true
                     layer.smooth: true
-                    layer.effect: MultiEffect { maskEnabled: true; maskSource: bubbleMask }
+                    layer.effect: MultiEffect { maskEnabled: true; maskSource: circleMask }
                     Image {
                         anchors.fill: parent
                         source: modelData.cover ? "file://" + modelData.cover : ""
@@ -266,13 +278,6 @@ PanelWindow {
                         asynchronous: true
                         cache: true
                     }
-                }
-                Item {
-                    id: bubbleMask
-                    anchors.fill: parent
-                    visible: false
-                    layer.enabled: true
-                    Rectangle { anchors.fill: parent; radius: width / 2; color: "black"; antialiasing: true }
                 }
 
                 MouseArea {
